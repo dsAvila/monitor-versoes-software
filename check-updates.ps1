@@ -6,24 +6,29 @@
     Exibe status detalhado no console (Write-Host) e notificação resumida no Windows.
 #>
 
+# --- IMPORTANTE ---
+# Para alterar o caminho dos executaveis vá para o arquivo config.json
+# Caso queira remover o caminho do icone para a notificação, não esqueça de remover do código para não ter erros
 
- # Verificando se os instaladores estão atualizados ou não
-# E envia uma única notificação consolidada no final
+# --- 1. Carregamento da Configuração ---
+$ConfigFilePath = Join-Path -Path $PSScriptRoot -ChildPath "config.json"
 
-
-# --- 1. Configurações e Caminhos ---
-# Edite os caminhos aqui.
-$AppConfig = @{
-  Chrome = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\ChromeStandaloneSetup64.exe"
-  Firefox = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\Firefox Setup 134.0.2.exe"
-  Java = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\jre-8u441-windows-i586.exe"
-  Klite = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\K-Lite_Codec_Pack_1915_Standard.exe"
+if (-not (Test-Path $ConfigFilePath)) {
+    Write-Host "ERRO CRÍTICO: O arquivo 'config.json' não foi encontrado na pasta do script." -ForegroundColor Red
+    Write-Host "Local esperado: $ConfigFilePath"
+    exit
 }
 
-# --- Não obrigatório ---
-$IconPath = "C:\Users\Usuario\Pictures\Scripts\alert-icon.png" # Icone para quando a notificação aparecer no Windows
+# Lê o arquivo JSON e converte para um objeto do PowerShell
+try {
+    $AppConfig = Get-Content -Path $ConfigFilePath -Raw | ConvertFrom-Json
+} catch {
+    Write-Host "ERRO: O arquivo 'config.json' está mal formatado." -ForegroundColor Red
+    exit
+}
 
 # User-Agent para simular um navegador real e evitar bloqueios
+# (Fixo, pois é configuração técnica do script, não do ambiente)
 $UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 # Lista para armazenar o resultado final
@@ -38,7 +43,6 @@ if (-not (Get-Module -Name BurntToast -ListAvailable)) {
 
 
 # --- 3. Funções Auxiliares ---
-# Função para enviar a notificação do Windows
 function Send-Notification {
     param (
         [string]$Title,
@@ -46,12 +50,11 @@ function Send-Notification {
         [string]$Icon
     )
     $params = @{ Text = $Title, $Message }
+    # Verifica se o caminho do ícone existe antes de tentar usar
     if ($Icon -and (Test-Path $Icon)) { $params.Add('AppLogo', $Icon) }
     New-BurntToastNotification @params
 }
 
-
-# Função genérica que compara as versões e escreve na tela
 function Test-Version {
     param (
         [string]$PathProgram,
@@ -68,7 +71,6 @@ function Test-Version {
         
         if ([string]::IsNullOrEmpty($localVersion)) { return "NoVersionInfo" }
 
-        # Limpa textos extras para comparar apenas números (Ex: "19.1.5.0" vs "19.1.5")
         $onlineClean = $OnlineVersion -replace '[^\d.]', ''
         $localClean = $localVersion -replace '[^\d.]', ''
 
@@ -95,18 +97,16 @@ function Verify-Chrome {
             $status = Test-Version -PathProgram $AppConfig.Chrome -OnlineVersion $ver
             if ($status -eq "Outdated") { 
                 $global:outdatedPrograms.Add("Google Chrome") | Out-Null
-                Write-Host " [DESATUALIZADO] (Nova versão: $ver)" -ForegroundColor Red 
+                Write-Host " [DESATUALIZADO] (Nova: $ver)" -ForegroundColor Red 
             }
             elseif ($status -eq "NotFound") { 
                 $global:outdatedPrograms.Add("Chrome (Arquivo não encontrado)") | Out-Null
-                Write-Host " [ERRO: ARQUIVO NÃO ENCONTRADO]" -ForegroundColor Magenta 
+                Write-Host " [ERRO CAMINHO]" -ForegroundColor Magenta 
             }
-            else { 
-                Write-Host " [OK]" -ForegroundColor Green 
-            }
+            else { Write-Host " [OK]" -ForegroundColor Green }
         }
     } catch { 
-        Write-Host " [ERRO NA API]" -ForegroundColor DarkRed
+        Write-Host " [ERRO API]" -ForegroundColor DarkRed
         $global:outdatedPrograms.Add("Google Chrome (Erro API)") | Out-Null 
     }
 }
@@ -121,18 +121,16 @@ function Verify-Firefox {
             $status = Test-Version -PathProgram $AppConfig.Firefox -OnlineVersion $ver
             if ($status -eq "Outdated") { 
                 $global:outdatedPrograms.Add("Mozilla Firefox") | Out-Null
-                Write-Host " [DESATUALIZADO] (Nova versão: $ver)" -ForegroundColor Red 
+                Write-Host " [DESATUALIZADO] (Nova: $ver)" -ForegroundColor Red 
             }
             elseif ($status -eq "NotFound") { 
                 $global:outdatedPrograms.Add("Firefox (Arquivo não encontrado)") | Out-Null
-                Write-Host " [ERRO: ARQUIVO NÃO ENCONTRADO]" -ForegroundColor Magenta 
+                Write-Host " [ERRO CAMINHO]" -ForegroundColor Magenta 
             }
-            else { 
-                Write-Host " [OK]" -ForegroundColor Green 
-            }
+            else { Write-Host " [OK]" -ForegroundColor Green }
         }
     } catch { 
-        Write-Host " [ERRO NA API]" -ForegroundColor DarkRed
+        Write-Host " [ERRO API]" -ForegroundColor DarkRed
         $global:outdatedPrograms.Add("Mozilla Firefox (Erro API)") | Out-Null 
     }
 }
@@ -151,22 +149,20 @@ function Verify-Java {
                 
                 if ($status -eq "Outdated") { 
                     $global:outdatedPrograms.Add("Java (JRE)") | Out-Null
-                    Write-Host " [DESATUALIZADO] (Nova versão: $ver)" -ForegroundColor Red 
+                    Write-Host " [DESATUALIZADO] (Nova: $ver)" -ForegroundColor Red 
                 }
                 elseif ($status -eq "NotFound") { 
                     $global:outdatedPrograms.Add("Java (Arquivo não encontrado)") | Out-Null
-                    Write-Host " [ERRO: ARQUIVO NÃO ENCONTRADO]" -ForegroundColor Magenta 
+                    Write-Host " [ERRO CAMINHO]" -ForegroundColor Magenta 
                 }
-                else { 
-                    Write-Host " [OK]" -ForegroundColor Green 
-                }
+                else { Write-Host " [OK]" -ForegroundColor Green }
             } else {
                 Write-Host " [ERRO REGEX]" -ForegroundColor DarkRed
                 $global:outdatedPrograms.Add("Java (Erro Extração)") | Out-Null
             }
         }
     } catch { 
-        Write-Host " [ERRO NA API]" -ForegroundColor DarkRed
+        Write-Host " [ERRO API]" -ForegroundColor DarkRed
         $global:outdatedPrograms.Add("Java (Erro API)") | Out-Null 
     }
 }
@@ -183,15 +179,13 @@ function Verify-Klite {
             
             if ($status -eq "Outdated") { 
                 $global:outdatedPrograms.Add("K-Lite Codec Pack") | Out-Null
-                Write-Host " [DESATUALIZADO] (Nova versão: $ver)" -ForegroundColor Red 
+                Write-Host " [DESATUALIZADO] (Nova: $ver)" -ForegroundColor Red 
             }
             elseif ($status -eq "NotFound") { 
                 $global:outdatedPrograms.Add("K-Lite (Arquivo não encontrado)") | Out-Null
-                Write-Host " [ERRO: ARQUIVO NÃO ENCONTRADO]" -ForegroundColor Magenta 
+                Write-Host " [ERRO CAMINHO]" -ForegroundColor Magenta 
             }
-            else { 
-                Write-Host " [OK]" -ForegroundColor Green 
-            }
+            else { Write-Host " [OK]" -ForegroundColor Green }
         } else {
              Write-Host " [ERRO REGEX]" -ForegroundColor DarkRed
              $global:outdatedPrograms.Add("K-Lite (Erro Regex)") | Out-Null
@@ -205,7 +199,8 @@ function Verify-Klite {
 
 # --- 5. Execução Principal ---
 Clear-Host
-Write-Host "--- Iniciando Verificação de Atualizações ---`n" -ForegroundColor Cyan
+Write-Host "--- Iniciando Verificação ---" -ForegroundColor Cyan
+Write-Host "Lendo configuração de: $ConfigFilePath`n" -ForegroundColor Gray
 
 Verify-Chrome
 Verify-Firefox
@@ -218,7 +213,7 @@ Write-Host "`n--- Verificação Concluída ---" -ForegroundColor Cyan
 # --- 6. Notificação Final ---
 if ($outdatedPrograms.Count -gt 0) {
     $msg = "Desatualizados: " + ($outdatedPrograms -join ", ") + ". Verifique o laboratório."
-    Send-Notification -Title "Atualizações Pendentes" -Message $msg -Icon $IconPath
+    Send-Notification -Title "Atualizações Pendentes" -Message $msg -Icon $AppConfig.IconPath
 } else {
-    Send-Notification -Title "Tudo Atualizado" -Message "Todos os programas verificados estão na versão mais recente." -Icon $IconPath
+    Send-Notification -Title "Tudo Atualizado" -Message "Todos os programas verificados estão na versão mais recente." -Icon $AppConfig.IconPath
 }
