@@ -203,29 +203,22 @@ function Verify-Klite {
 }
 
 
-# --- Executando as verificações ---
-VerifyChrome
+# --- 5. Execução Principal ---
+Clear-Host
+Write-Host "--- Iniciando Verificação de Atualizações ---`n" -ForegroundColor Cyan
 
-VerifyFirefox
+Verify-Chrome
+Verify-Firefox
+Verify-Java
+Verify-Klite
 
-VerifyJava
-
-VerifyKlite
-
-
-# --- Notificação Final ---
-$iconAlert = "C:\Users\Usuario\Pictures\Scripts\alert-icon.png"
+Write-Host "`n--- Verificação Concluída ---" -ForegroundColor Cyan
 
 
+# --- 6. Notificação Final ---
 if ($outdatedPrograms.Count -gt 0) {
-
-    # Para a exibição, convertemos a lista para um array e juntamos os itens.
-    $message = "Os seguintes programas estao desatualizados: " + ($outdatedPrograms -join ", ") + ". Procure atualiza-los."
-
-    NotificationPush -Title "Atualizacoes de Programas" -Message $message -IconPath $iconAlert
-
+    $msg = "Desatualizados: " + ($outdatedPrograms -join ", ") + ". Verifique o laboratório."
+    Send-Notification -Title "Atualizações Pendentes" -Message $msg -Icon $IconPath
 } else {
-
-    NotificationPush -Title "Atualizacoes de Programas" -Message "Todos os seus programas estao atualizados." -IconPath $iconAlert
-
-} 
+    Send-Notification -Title "Tudo Atualizado" -Message "Todos os programas verificados estão na versão mais recente." -Icon $IconPath
+}
