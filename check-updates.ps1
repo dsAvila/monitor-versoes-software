@@ -1,309 +1,224 @@
+<#
+.SYNOPSIS
+    Monitor de Atualizações de Software.
+.DESCRIPTION
+    Verifica versões locais contra APIs oficiais e notifica via BurntToast.
+    Exibe status detalhado no console (Write-Host) e notificação resumida no Windows.
+#>
+
+
  # Verificando se os instaladores estão atualizados ou não
 # E envia uma única notificação consolidada no final
 
 
-# --- Caminho dos arquivos ---
-$pathChrome = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\ChromeStandaloneSetup64.exe"
+# --- 1. Configurações e Caminhos ---
+# Edite os caminhos aqui.
+$AppConfig = @{
+  Chrome = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\ChromeStandaloneSetup64.exe"
+  Firefox = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\Firefox Setup 134.0.2.exe"
+  Java = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\jre-8u441-windows-i586.exe"
+  Klite = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\K-Lite_Codec_Pack_1915_Standard.exe"
+}
 
-$pathFirefox = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\Firefox Setup 134.0.2.exe"
+# --- Não obrigatório ---
+$IconPath = "C:\Users\Usuario\Pictures\Scripts\alert-icon.png" # Icone para quando a notificação aparecer no Windows
 
-$pathJava = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\jre-8u441-windows-i586.exe"
+# User-Agent para simular um navegador real e evitar bloqueios
+$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-$pathKlite = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\K-Lite_Codec_Pack_1915_Standard.exe"
-
-
-# --- Lista para armazenar programas desatualizados ---
-$outdatedPrograms = [System.Collections.ArrayList]::new()
+# Lista para armazenar o resultado final
+$global:outdatedPrograms = [System.Collections.ArrayList]::new()
 
 
-# --- Verificação de módulo BurntToast ---
+# --- 2. Preparação do Ambiente ---
 if (-not (Get-Module -Name BurntToast -ListAvailable)) {
-
-    Write-Host "O modulo BurntToast nao foi encontrado. Instalando..."
-
-    Install-Module -Name BurntToast -Force -Scope CurrentUser
-
+    Write-Host "Instalando módulo BurntToast..." -ForegroundColor Yellow
+    Install-Module -Name BurntToast -Force -Scope CurrentUser -ErrorAction SilentlyContinue
 }
 
 
-# --- Enviando notificação do Windows ---
-function NotificationPush {
-
+# --- 3. Funções Auxiliares ---
+# Função para enviar a notificação do Windows
+function Send-Notification {
     param (
-
         [string]$Title,
-
         [string]$Message,
-
-        [string]$IconPath = ""
-
+        [string]$Icon
     )
-
-    if ($IconPath) {
-
-        New-BurntToastNotification -Text $Title, $Message -AppLogo $IconPath
-
-    } else {
-
-        New-BurntToastNotification -Text $Title, $Message
-
-    }
-
+    $params = @{ Text = $Title, $Message }
+    if ($Icon -and (Test-Path $Icon)) { $params.Add('AppLogo', $Icon) }
+    New-BurntToastNotification @params
 }
 
 
-# --- Comparando versões ---
-function CompareVersion {
-
+# Função genérica que compara as versões e escreve na tela
+function Test-Version {
     param (
-
         [string]$PathProgram,
-
-        [string]$mostCurrentVersion
-
+        [string]$OnlineVersion
     )
-
 
     if (-not (Test-Path $PathProgram)) {
-
-        return $true
-
+        return "NotFound"
     }
-
-   
-
+    
     try {
-
         $fileVersionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($PathProgram)
+        $localVersion = $fileVersionInfo.FileVersion
+        
+        if ([string]::IsNullOrEmpty($localVersion)) { return "NoVersionInfo" }
 
-        $installerVersion = $fileVersionInfo.FileVersion
+        # Limpa textos extras para comparar apenas números (Ex: "19.1.5.0" vs "19.1.5")
+        $onlineClean = $OnlineVersion -replace '[^\d.]', ''
+        $localClean = $localVersion -replace '[^\d.]', ''
 
-       
-
-        if ([string]::IsNullOrEmpty($installerVersion)) {
-
-            return $true
-
-        }
-
-
-        $mostCurrentVersion_clean = $mostCurrentVersion -replace '[a-zA-Z]', ''
-
-        $installerVersion_clean = $installerVersion -replace '[a-zA-Z]', ''
-
-
-        if ([version]$installerVersion_clean -ge [version]$mostCurrentVersion_clean) {
-
-            return $false
-
+        if ([version]$localClean -ge [version]$onlineClean) {
+            return "UpToDate"
         } else {
-
-            return $true
-
+            return "Outdated"
         }
-
     }
-
     catch {
-
-        return $true
-
+        return "Error"
     }
-
 }
 
 
-# --- Verificação Google Chrome ---
-function VerifyChrome {
-
+# --- 4. Verificações Específicas ---
+function Verify-Chrome {
+    Write-Host "Verificando Google Chrome..." -NoNewline
     try {
-
-        $json = Invoke-RestMethod -Uri "https://versionhistory.googleapis.com/v1/chrome/platforms/win/channels/stable/versions"
-
-        $mostCurrentVersion = $json.versions[0].version
-
-       
-
-        if ($null -ne $mostCurrentVersion) {
-
-            if (CompareVersion -PathProgram $pathChrome -mostCurrentVersion $mostCurrentVersion) {
-
-                $outdatedPrograms.Add("Google Chrome") | Out-Null
-
+        $json = Invoke-RestMethod -Uri "https://versionhistory.googleapis.com/v1/chrome/platforms/win/channels/stable/versions" -UserAgent $UserAgent
+        $ver = $json.versions[0].version
+        
+        if ($ver) {
+            $status = Test-Version -PathProgram $AppConfig.Chrome -OnlineVersion $ver
+            if ($status -eq "Outdated") { 
+                $global:outdatedPrograms.Add("Google Chrome") | Out-Null
+                Write-Host " [DESATUALIZADO] (Nova versão: $ver)" -ForegroundColor Red 
             }
-
-        } else {
-
-            $outdatedPrograms.Add("Google Chrome (Erro na API)") | Out-Null
-
-        }
-
-    }
-
-    catch {
-
-        $outdatedPrograms.Add("Google Chrome (Erro de Verificacao)") | Out-Null
-
-    }
-
-}
-
-
-# --- Verificação Mozilla Firefox ---
-function VerifyFirefox {
-
-    try {
-
-        $json = Invoke-RestMethod -Uri "https://product-details.mozilla.org/1.0/firefox_versions.json"
-
-        $mostCurrentVersion = $json.LATEST_FIREFOX_VERSION
-
-       
-
-        if ($null -ne $mostCurrentVersion) {
-
-            if (CompareVersion -PathProgram $pathFirefox -mostCurrentVersion $mostCurrentVersion) {
-
-                $outdatedPrograms.Add("Mozilla Firefox") | Out-Null
-
+            elseif ($status -eq "NotFound") { 
+                $global:outdatedPrograms.Add("Chrome (Arquivo não encontrado)") | Out-Null
+                Write-Host " [ERRO: ARQUIVO NÃO ENCONTRADO]" -ForegroundColor Magenta 
             }
-
-        } else {
-
-            $outdatedPrograms.Add("Mozilla Firefox (Erro na API)") | Out-Null
-
+            else { 
+                Write-Host " [OK]" -ForegroundColor Green 
+            }
         }
-
+    } catch { 
+        Write-Host " [ERRO NA API]" -ForegroundColor DarkRed
+        $global:outdatedPrograms.Add("Google Chrome (Erro API)") | Out-Null 
     }
-
-    catch {
-
-        $outdatedPrograms.Add("Mozilla Firefox (Erro de Verificacao)") | Out-Null
-
-    }
-
 }
 
-
-# --- Verificação Java (JRE) ---
-function VerifyJava {
-
+function Verify-Firefox {
+    Write-Host "Verificando Firefox..." -NoNewline
     try {
+        $json = Invoke-RestMethod -Uri "https://product-details.mozilla.org/1.0/firefox_versions.json" -UserAgent $UserAgent
+        $ver = $json.LATEST_FIREFOX_VERSION
+        
+        if ($ver) {
+            $status = Test-Version -PathProgram $AppConfig.Firefox -OnlineVersion $ver
+            if ($status -eq "Outdated") { 
+                $global:outdatedPrograms.Add("Mozilla Firefox") | Out-Null
+                Write-Host " [DESATUALIZADO] (Nova versão: $ver)" -ForegroundColor Red 
+            }
+            elseif ($status -eq "NotFound") { 
+                $global:outdatedPrograms.Add("Firefox (Arquivo não encontrado)") | Out-Null
+                Write-Host " [ERRO: ARQUIVO NÃO ENCONTRADO]" -ForegroundColor Magenta 
+            }
+            else { 
+                Write-Host " [OK]" -ForegroundColor Green 
+            }
+        }
+    } catch { 
+        Write-Host " [ERRO NA API]" -ForegroundColor DarkRed
+        $global:outdatedPrograms.Add("Mozilla Firefox (Erro API)") | Out-Null 
+    }
+}
 
-        # API do Adoptium para a versão LTS do Java 8
-
-        $json = Invoke-RestMethod -Uri "https://api.adoptium.net/v3/assets/feature_releases/8/ga?jvm_impl=hotspot&heap_size=normal&os=windows&arch=x64&image_type=jre&page_size=1&vendor=eclipse"
-
-       
-
+function Verify-Java {
+    Write-Host "Verificando Java (JRE)..." -NoNewline
+    try {
+        $json = Invoke-RestMethod -Uri "https://api.adoptium.net/v3/assets/feature_releases/8/ga?jvm_impl=hotspot&heap_size=normal&os=windows&arch=x64&image_type=jre&page_size=1&vendor=eclipse" -UserAgent $UserAgent
         if ($json.Count -gt 0) {
-
-            $mostCurrentVersion = $json[0].release_name
-
-            # Formata a versão da API para comparar com a do instalador
-            # Ex: jdk8u441-b01 -> 8u441
-
-            $regex = [regex]::Match($mostCurrentVersion, '(\d+u\d+)')
-
+            $rawVer = $json[0].release_name
+            $regex = [regex]::Match($rawVer, '(\d+u\d+)')
+            
             if ($regex.Success) {
-
-                $mostCurrentVersion_clean = $regex.Groups[1].Value
-
-                if (CompareVersion -PathProgram $pathJava -mostCurrentVersion $mostCurrentVersion_clean) {
-
-                    $outdatedPrograms.Add("Java (JRE)") | Out-Null
-
+                $ver = $regex.Groups[1].Value
+                $status = Test-Version -PathProgram $AppConfig.Java -OnlineVersion $ver
+                
+                if ($status -eq "Outdated") { 
+                    $global:outdatedPrograms.Add("Java (JRE)") | Out-Null
+                    Write-Host " [DESATUALIZADO] (Nova versão: $ver)" -ForegroundColor Red 
                 }
-
+                elseif ($status -eq "NotFound") { 
+                    $global:outdatedPrograms.Add("Java (Arquivo não encontrado)") | Out-Null
+                    Write-Host " [ERRO: ARQUIVO NÃO ENCONTRADO]" -ForegroundColor Magenta 
+                }
+                else { 
+                    Write-Host " [OK]" -ForegroundColor Green 
+                }
             } else {
-
-                $outdatedPrograms.Add("Java (Erro na extração da versão)") | Out-Null
-
+                Write-Host " [ERRO REGEX]" -ForegroundColor DarkRed
+                $global:outdatedPrograms.Add("Java (Erro Extração)") | Out-Null
             }
-
-        } else {
-
-            $outdatedPrograms.Add("Java (Erro: Nao foi possivel encontrar a versao)") | Out-Null
-
         }
-
+    } catch { 
+        Write-Host " [ERRO NA API]" -ForegroundColor DarkRed
+        $global:outdatedPrograms.Add("Java (Erro API)") | Out-Null 
     }
-
-    catch {
-
-        $outdatedPrograms.Add("Java (Erro de Verificacao)") | Out-Null
-
-    }
-
 }
 
-
-# --- Verificação K-Lite Codec Pack ---
-function VerifyKlite {
-
+function Verify-Klite {
+    Write-Host "Verificando K-Lite Codec..." -NoNewline
     try {
-
-        # Acessa a página de changelog mais confiável
-        $html = Invoke-WebRequest -Uri "https://codecguide.com/changelogs_standard.htm"
-
-       
-
-        # Procura pela versão no título do changelog. Ex: "Changelog 19.1.0 to 19.1.5"
+        $html = Invoke-WebRequest -Uri "https://codecguide.com/changelogs_standard.htm" -UserAgent $UserAgent
         $regex = [regex]::Match($html.Content, 'Changelog (\d+\.\d+\.\d+) to (\d+\.\d+\.\d+)')
-
-       
-
+        
         if ($regex.Success) {
-
-            # Pega a versão final no título (Ex: 19.1.5)
-            $mostCurrentVersion = $regex.Groups[2].Value
-
-            if (CompareVersion -PathProgram $pathKlite -mostCurrentVersion $mostCurrentVersion) {
-
-                $outdatedPrograms.Add("K-Lite Codec Pack") | Out-Null
-
+            $ver = $regex.Groups[2].Value
+            $status = Test-Version -PathProgram $AppConfig.Klite -OnlineVersion $ver
+            
+            if ($status -eq "Outdated") { 
+                $global:outdatedPrograms.Add("K-Lite Codec Pack") | Out-Null
+                Write-Host " [DESATUALIZADO] (Nova versão: $ver)" -ForegroundColor Red 
             }
-
+            elseif ($status -eq "NotFound") { 
+                $global:outdatedPrograms.Add("K-Lite (Arquivo não encontrado)") | Out-Null
+                Write-Host " [ERRO: ARQUIVO NÃO ENCONTRADO]" -ForegroundColor Magenta 
+            }
+            else { 
+                Write-Host " [OK]" -ForegroundColor Green 
+            }
         } else {
-
-            $outdatedPrograms.Add("K-Lite Codec Pack (Erro na extração da versão)") | Out-Null
-
+             Write-Host " [ERRO REGEX]" -ForegroundColor DarkRed
+             $global:outdatedPrograms.Add("K-Lite (Erro Regex)") | Out-Null
         }
-
+    } catch { 
+        Write-Host " [ERRO NO SITE]" -ForegroundColor DarkRed
+        $global:outdatedPrograms.Add("K-Lite (Erro Site)") | Out-Null 
     }
-
-    catch {
-
-        $outdatedPrograms.Add("K-Lite Codec Pack (Erro de Verificacao)") | Out-Null
-
-    }
-
 }
 
 
-# --- Executando as verificações ---
-VerifyChrome
+# --- 5. Execução Principal ---
+Clear-Host
+Write-Host "--- Iniciando Verificação de Atualizações ---`n" -ForegroundColor Cyan
 
-VerifyFirefox
+Verify-Chrome
+Verify-Firefox
+Verify-Java
+Verify-Klite
 
-VerifyJava
-
-VerifyKlite
-
-
-# --- Notificação Final ---
-$iconAlert = "C:\Users\Usuario\Pictures\Scripts\alert-icon.png"
+Write-Host "`n--- Verificação Concluída ---" -ForegroundColor Cyan
 
 
+# --- 6. Notificação Final ---
 if ($outdatedPrograms.Count -gt 0) {
-
-    # Para a exibição, convertemos a lista para um array e juntamos os itens.
-    $message = "Os seguintes programas estao desatualizados: " + ($outdatedPrograms -join ", ") + ". Procure atualiza-los."
-
-    NotificationPush -Title "Atualizacoes de Programas" -Message $message -IconPath $iconAlert
-
+    $msg = "Desatualizados: " + ($outdatedPrograms -join ", ") + ". Verifique o laboratório."
+    Send-Notification -Title "Atualizações Pendentes" -Message $msg -Icon $IconPath
 } else {
-
-    NotificationPush -Title "Atualizacoes de Programas" -Message "Todos os seus programas estao atualizados." -IconPath $iconAlert
-
-} 
+    Send-Notification -Title "Tudo Atualizado" -Message "Todos os programas verificados estão na versão mais recente." -Icon $IconPath
+}
