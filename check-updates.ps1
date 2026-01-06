@@ -1,54 +1,53 @@
+<#
+.SYNOPSIS
+    Monitor de Atualizações de Software.
+.DESCRIPTION
+    Verifica versões locais contra APIs oficiais e notifica via BurntToast.
+    Exibe status detalhado no console (Write-Host) e notificação resumida no Windows.
+#>
+
+
  # Verificando se os instaladores estão atualizados ou não
 # E envia uma única notificação consolidada no final
 
 
-# --- Caminho dos arquivos ---
-$pathChrome = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\ChromeStandaloneSetup64.exe"
+# --- 1. Configurações e Caminhos ---
+# Edite os caminhos aqui.
+$AppConfig = @{
+  Chrome = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\ChromeStandaloneSetup64.exe"
+  Firefox = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\Firefox Setup 134.0.2.exe"
+  Java = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\jre-8u441-windows-i586.exe"
+  Klite = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\K-Lite_Codec_Pack_1915_Standard.exe"
+}
 
-$pathFirefox = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\Firefox Setup 134.0.2.exe"
+# --- Não obrigatório ---
+$IconPath = "C:\Users\Usuario\Pictures\Scripts\alert-icon.png" # Icone para quando a notificação aparecer no Windows
 
-$pathJava = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\jre-8u441-windows-i586.exe"
+# User-Agent para simular um navegador real e evitar bloqueios
+$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-$pathKlite = "\\laboratorio\Programas LAB\PROGRAMAS ATUALIZADOS\aBasicos\Todos Os Programas\K-Lite_Codec_Pack_1915_Standard.exe"
-
-
-# --- Lista para armazenar programas desatualizados ---
-$outdatedPrograms = [System.Collections.ArrayList]::new()
+# Lista para armazenar o resultado final
+$global:outdatedPrograms = [System.Collections.ArrayList]::new()
 
 
-# --- Verificação de módulo BurntToast ---
+# --- 2. Preparação do Ambiente ---
 if (-not (Get-Module -Name BurntToast -ListAvailable)) {
-
-    Write-Host "O modulo BurntToast nao foi encontrado. Instalando..."
-
-    Install-Module -Name BurntToast -Force -Scope CurrentUser
-
+    Write-Host "Instalando módulo BurntToast..." -ForegroundColor Yellow
+    Install-Module -Name BurntToast -Force -Scope CurrentUser -ErrorAction SilentlyContinue
 }
 
 
-# --- Enviando notificação do Windows ---
-function NotificationPush {
-
+# --- 3. Funções Auxiliares ---
+# Função para enviar a notificação do Windows
+function Send-Notification {
     param (
-
         [string]$Title,
-
         [string]$Message,
-
-        [string]$IconPath = ""
-
+        [string]$Icon
     )
-
-    if ($IconPath) {
-
-        New-BurntToastNotification -Text $Title, $Message -AppLogo $IconPath
-
-    } else {
-
-        New-BurntToastNotification -Text $Title, $Message
-
-    }
-
+    $params = @{ Text = $Title, $Message }
+    if ($Icon -and (Test-Path $Icon)) { $params.Add('AppLogo', $Icon) }
+    New-BurntToastNotification @params
 }
 
 
